@@ -127,16 +127,15 @@ def main():
 
         if item['equipped'] and item['definition'].get('armorTypeId'):
             c.armorClass += item['definition'].get('armorClass')
-
-            match item['definition'].get('baseArmorName'):
-                case "Padded" | "Leather" | "Studded Leather":
-                    armorEquipped = True
-                    c.armorClass += c.stat_modifier['dexterity']
-                case "Hide" | "Chain Shirt" | "Scale Mail" | "Breastplate" | "Half Plate":
-                    armorEquipped = True
-                    c.armorClass += min(2, c.stat_modifier['dexterity'])
-                case "Ring Mail" | "Chain Mail" | "Splint" | "Plate":
-                    armorEquipped = True
+            armorName = item['definition'].get('baseArmorName')
+            if armorName in {"Padded", "Leather", "Studded Leather"}:
+                armorEquipped = True
+                c.armorClass += c.stat_modifier['dexterity']
+            if armorName in {"Hide", "Chain Shirt", "Scale Mail", "Breastplate", "Half Plate"}:
+                armorEquipped = True
+                c.armorClass += min(2, c.stat_modifier['dexterity'])
+            if armorName in {"Ring Mail", "Chain Mail", "Splint", "Plate"}:
+                armorEquipped = True
 
     # if a shield is equipped, c.armorClass already accounted for it
     if not armorEquipped:
