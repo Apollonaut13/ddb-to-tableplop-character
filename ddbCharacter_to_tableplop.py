@@ -66,6 +66,31 @@ def main():
         def stat_modifier(self):
             return {key: (value-10) // 2 for key, value in self.stats.items()}
 
+        @property
+        def class_features(self):
+            # grab the class features because some of them affect hit points and AC
+            # store as a dict of objects for easy indexing
+            class_features = {}
+            for char_class in characterData.get('classes'):
+                for feature in char_class.get('classFeatures'):
+                    class_level = char_class.get('level')
+                    if class_level >= feature.get('definition').get('requiredLevel'):
+                        feature_name = feature.get('definition').get('name')
+                        feature_obj = {
+                            "name": feature_name,
+                            "class_level": class_level
+                        }
+                        class_features[feature_name] = feature_obj
+            return class_features
+
+        @property
+        def misc_hp_bonus(self):
+            # calculate bonuses for class features here.
+            misc_hp_bonus = 0
+            if 'Draconic Resilience' in self.class_features.keys():
+                misc_hp_bonus +=\
+                    self.class_features['Draconic Resilience']['class_level']
+            return misc_hp_bonus
 
     c = Character()
     c.name = characterData.get('name')
@@ -99,7 +124,6 @@ def main():
 
     for i, statName in enumerate(dnd_stats):
         c.stats[statName] = baseStats[i]
-
 
     misc_ac_bonus = 0
     for race_Class_Background_Item_Feat_Condition, feature in characterData.get('modifiers').items():
@@ -157,6 +181,10 @@ def main():
         initiative += c.stat_modifier['wisdom']
     if 'Wizard (War)' in c.classNames:
         initiative += c.stat_modifier['intelligence']
+
+    base_hit_points = characterData.get('baseHitPoints')
+    constitution_bonus = c.level * c.stat_modifier['constitution']
+    c.maxHP = base_hit_points + constitution_bonus + c.misc_hp_bonus
 
     sheet = {
         "stats": {},
