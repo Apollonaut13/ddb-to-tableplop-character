@@ -1,93 +1,91 @@
 import requests
 import json
 import os
+import inspect
+from dataclasses import dataclass, field
+
+dnd_skills = {
+    'athletics': 'strength',
+    'acrobatics': 'dexterity',
+    'sleight-of-hand': 'dexterity',
+    'stealth': 'dexterity',
+    'arcana': 'intelligence',
+    'history': 'intelligence',
+    'investigation': 'intelligence',
+    'nature': 'intelligence',
+    'religion': 'intelligence',
+    'animal-handling': 'wisdom',
+    'insight': 'wisdom',
+    'medicine': 'wisdom',
+    'perception': 'wisdom',
+    'survival': 'wisdom',
+    'deception': 'charisma',
+    'intimidation': 'charisma',
+    'performance': 'charisma',
+    'persuasion': 'charisma'
+}
+
+dnd_stats = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma']
 
 
-def main():
-    characterURL = input("Paste the URL for your character below.\n> ")
+@dataclass
+class Character:
+    name: str = ""
+    level: int = 0
+    classNames: str = ""
+    armorClass: int = 0
+    maxHP: int = 0
+    stats: dict = field(default_factory=dict)
+    skills: dict = field(default_factory=dict)
+    saves: dict = field(default_factory=dict)
+
+    @property
+    def stat_modifier(self) -> dict:
+        return {key: (value - 10) // 2 for key, value in self.stats.items()}
+
+    def __str__(self):
+        attr_string = '\n'.join(f"{attr}: {value}" for attr, value in self.__dict__.items())
+        return 'Character Information'.center(41, '-') + '\n' + attr_string + '\n'
+
+
+def class_features(data) -> dict:
+    # grab the class features because some of them affect hit points and AC
+    # store as a dict of objects for easy indexing
+    class_features = {}
+    for char_class in data.get('classes'):
+        for feature in char_class.get('classFeatures'):
+            class_level = char_class.get('level')
+            if class_level >= feature.get('definition').get('requiredLevel'):
+                feature_name = feature.get('definition').get('name')
+                feature_obj = {
+                    "name": feature_name,
+                    "class_level": class_level
+                }
+                class_features[feature_name] = feature_obj
+    return class_features
+
+
+def all_data_from_ddb_URL(characterURL):
     characterID = characterURL.split('/')[-1]
     if 'ddb.ac' in characterURL:
         characterID = characterURL.split('/')[-2]
+    r = requests.get(f"https://character-service.dndbeyond.com/character/v3/character/{characterID}")
+    characterData = json.loads(r.text)
 
-    try:
-        r = requests.get(f"https://character-service.dndbeyond.com/character/v3/character/{characterID}")
-        characterData = json.loads(r.text)
+    if characterData['data'].get('name'):
+        print(f"Loaded {characterData['data']['name']}'s character data.")
+        return characterData['data']
 
-        if characterData['data'].get('name'):
-            print(f"Loaded {characterData['data']['name']}'s character data.")
-        else:
-            print("Character not found. Exiting.")
-            exit()
-    except Exception as e:
-        print(e)
+    print("Character not found. Exiting.")
+    exit()
 
-    with open(f"{characterData['data']['name']}.json", 'w') as outputFile:
-        json.dump(characterData, outputFile, indent=4)
-    characterData = characterData['data']
+    # with open(f"{characterData['data']['name']}.json", 'w') as outputFile:
+    #     json.dump(characterData, outputFile, indent=4)
 
-    dnd_skills = {
-        'athletics': 'strength',
-        'acrobatics': 'dexterity',
-        'sleight-of-hand': 'dexterity',
-        'stealth': 'dexterity',
-        'arcana': 'intelligence',
-        'history': 'intelligence',
-        'investigation': 'intelligence',
-        'nature': 'intelligence',
-        'religion': 'intelligence',
-        'animal-handling': 'wisdom',
-        'insight': 'wisdom',
-        'medicine': 'wisdom',
-        'perception': 'wisdom',
-        'survival': 'wisdom',
-        'deception': 'charisma',
-        'intimidation': 'charisma',
-        'performance': 'charisma',
-        'persuasion': 'charisma'
-    }
 
-    dnd_stats = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma']
-
-    class Character:
-        def __init__(self):
-            self.name = ""
-            self.level = 0
-            self.classNames = ""
-            self.castingClass = ""
-            self.armorClass = 0
-            self.maxHP = 0
-
-            self.stats = {}
-            self.skills = {}
-            self.saves = {}
-
-        @property
-        def stat_modifier(self) -> dict:
-            return {key: (value-10) // 2 for key, value in self.stats.items()}
-
-        @property
-        def class_features(self) -> dict:
-            # grab the class features because some of them affect hit points and AC
-            # store as a dict of objects for easy indexing
-            class_features = {}
-            for char_class in characterData.get('classes'):
-                for feature in char_class.get('classFeatures'):
-                    class_level = char_class.get('level')
-                    if class_level >= feature.get('definition').get('requiredLevel'):
-                        feature_name = feature.get('definition').get('name')
-                        feature_obj = {
-                            "name": feature_name,
-                            "class_level": class_level
-                        }
-                        class_features[feature_name] = feature_obj
-            return class_features
-
-    c = Character()
-    c.name = characterData.get('name')
-    c.level = sum(eachClass.get('level') for eachClass in characterData.get('classes'))
-
+def build_classSubclassLevel_string_from(data):
     classComboString = ""
-    for i, eachClass in enumerate(characterData.get('classes')):
+    for i, eachClass in enumerate(data.get('classes')):
         className = eachClass['definition']['name']
         subclass = None
         try:
@@ -98,13 +96,15 @@ def main():
             className += f' ({subclass})'
         className += f" {eachClass.get('level')}"
         classComboString += className
-        if i < len(characterData.get('classes')) - 1:
+        if i < len(data.get('classes')) - 1:
             classComboString += '/'
-    c.classNames = classComboString
+    return classComboString
 
-    baseStats = [stat['value'] for stat in characterData.get('stats')]
-    bonusStats = [stat['value'] for stat in characterData.get('bonusStats')]
-    overrideStats = [stat['value'] for stat in characterData.get('overrideStats')]
+
+def extract_stats_from(data):
+    baseStats = [stat['value'] for stat in data.get('stats')]
+    bonusStats = [stat['value'] for stat in data.get('bonusStats')]
+    overrideStats = [stat['value'] for stat in data.get('overrideStats')]
 
     for i in range(6):
         if bonusStats[i]:
@@ -112,8 +112,50 @@ def main():
         if overrideStats[i]:
             baseStats[i] = overrideStats[i]
 
-    for i, statName in enumerate(dnd_stats):
-        c.stats[statName] = baseStats[i]
+    return {statName: baseStats[i] for i, statName in enumerate(dnd_stats)}
+
+
+def calculate_initiative_from(data, stats, classString):
+    initiative = stats['dexterity']
+    if 'Ranger (Gloom Stalker)' in classString:
+        initiative += stats['wisdom']
+    if 'Wizard (War)' in classString:
+        initiative += stats['intelligence']
+    if data['feats'] and "Alert" in {feat['definition']['name'] for feat in data.get('feats')}:
+        initiative += 5
+    return initiative
+
+
+def determine_HP(data, character):
+    misc_hp_bonus = 0
+    if data['race']['fullName'] == 'Hill Dwarf':
+        misc_hp_bonus += character.level
+
+    if "Draconic Resilience" in class_features(data):
+        misc_hp_bonus += class_features(data)['Draconic Resilience']['class_level']
+
+    if data['feats'] and "Tough" in {feat['definition']['name'] for feat in data.get('feats')}:
+        misc_hp_bonus += 2 * character.level
+
+    if data.get("overrideHitPoints"):
+        return data['overrideHitPoints']
+
+    base_hit_points = data.get('baseHitPoints')
+    if data.get("bonusHitPoints"):
+        base_hit_points += data['bonusHitPoints']
+    constitution_bonus = character.level * character.stat_modifier['constitution']
+    return base_hit_points + constitution_bonus + misc_hp_bonus
+
+
+def main():
+    characterURL = input("Paste the URL for your character below.\n> ")
+    characterData = all_data_from_ddb_URL(characterURL)
+    c = Character()
+
+    c.name = characterData.get('name')
+    c.level = sum(eachClass.get('level') for eachClass in characterData.get('classes'))
+    c.classNames = build_classSubclassLevel_string_from(characterData)
+    c.stats = extract_stats_from(characterData)
 
     misc_ac_bonus = 0
     for race_Class_Background_Item_Feat_Condition, feature in characterData.get('modifiers').items():
@@ -123,17 +165,18 @@ def main():
                     c.skills[detail.get('subType')] = 1
                 if detail.get('subType').endswith('saving-throws'):
                     c.saves[detail.get('subType').replace('-saving-throws', '')] = 1
-            if detail.get('type') == 'expertise':
-                if detail.get('subType') in dnd_skills.keys():
-                    c.skills[detail.get('subType')] = 2
+            if (
+                detail.get('type') == 'expertise'
+                and detail.get('subType') in dnd_skills.keys()
+            ):
+                c.skills[detail.get('subType')] = 2
             if detail.get('type') == 'bonus':
                 if detail.get('subType').endswith('score') and not detail.get('subType').startswith('choose'):
                     c.stats[detail.get('subType').split('-')[0]] += detail.get('value')
                 if detail.get('subType').endswith('armor-class'):
                     misc_ac_bonus += detail.get('value')
-            if detail.get('type') == 'set':
-                if detail.get('subType').endswith('score'):
-                    c.stats[detail.get('subType').split('-')[0]] = detail.get('value')
+            if detail.get('type') == 'set' and detail.get('subType').endswith('score'):
+                c.stats[detail.get('subType').split('-')[0]] = detail.get('value')
 
     armorEquipped = False
     for item in characterData.get('inventory'):
@@ -169,32 +212,8 @@ def main():
 
     c.armorClass += misc_ac_bonus
 
-    initiative = c.stat_modifier['dexterity']
-    if 'Ranger (Gloom Stalker)' in c.classNames:
-        initiative += c.stat_modifier['wisdom']
-    if 'Wizard (War)' in c.classNames:
-        initiative += c.stat_modifier['intelligence']
-    if characterData['feats'] and "Alert" in {feat['definition']['name'] for feat in characterData.get('feats')}:
-        initiative += 5
-
-    misc_hp_bonus = 0
-    if characterData['race']['fullName'] == 'Hill Dwarf':
-        misc_hp_bonus += c.level
-
-    if "Draconic Resilience" in c.class_features:
-        misc_hp_bonus += c.class_features['Draconic Resilience']['class_level']
-
-    if characterData['feats'] and "Tough" in {feat['definition']['name'] for feat in characterData.get('feats')}:
-        misc_hp_bonus += 2 * c.level
-
-    if characterData.get("overrideHitPoints"):
-        c.maxHP = characterData['overrideHitPoints']
-    else:
-        base_hit_points = characterData.get('baseHitPoints')
-        if characterData.get("bonusHitPoints"):
-            base_hit_points += characterData['bonusHitPoints']
-        constitution_bonus = c.level * c.stat_modifier['constitution']
-        c.maxHP = base_hit_points + constitution_bonus + misc_hp_bonus
+    initiative = calculate_initiative_from(characterData, c.stat_modifier, c.classNames)
+    c.maxHP = determine_HP(characterData, c)
 
     sheet = {
         "stats": {},
@@ -409,16 +428,7 @@ def main():
     sheet['savedMessages'] = []
     json.dump(sheet, open(f'{c.name.lower().replace(" ", "_")}_tableplop.json', 'w'), indent=4)
 
-    print("Character Information".center(41, '-'))
-    print("Name:", c.name)
-    print("Level:", c.level)
-    print("Class:", c.classNames)
-    print("Stats:", c.stats)
-    print("Max HP:", c.maxHP)
-    print("AC:", c.armorClass)
-    print("Skills:", list(c.skills.keys()))
-    print("Saves:", list(c.saves.keys()))
-    print()
+    print(c)
     print('Tableplop Character JSON created!')
     print(f'To see the file, open {os.getcwd()}')
 
