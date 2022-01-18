@@ -48,7 +48,6 @@ def main():
 
     dnd_stats = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma']
 
-
     class Character:
         def __init__(self):
             self.name = ""
@@ -63,11 +62,11 @@ def main():
             self.saves = {}
 
         @property
-        def stat_modifier(self):
+        def stat_modifier(self) -> dict:
             return {key: (value-10) // 2 for key, value in self.stats.items()}
 
         @property
-        def class_features(self):
+        def class_features(self) -> dict:
             # grab the class features because some of them affect hit points and AC
             # store as a dict of objects for easy indexing
             class_features = {}
@@ -82,15 +81,6 @@ def main():
                         }
                         class_features[feature_name] = feature_obj
             return class_features
-
-        @property
-        def misc_hp_bonus(self):
-            # calculate bonuses for class features here.
-            misc_hp_bonus = 0
-            if 'Draconic Resilience' in self.class_features.keys():
-                misc_hp_bonus +=\
-                    self.class_features['Draconic Resilience']['class_level']
-            return misc_hp_bonus
 
     c = Character()
     c.name = characterData.get('name')
@@ -141,6 +131,9 @@ def main():
                     c.stats[detail.get('subType').split('-')[0]] += detail.get('value')
                 if detail.get('subType').endswith('armor-class'):
                     misc_ac_bonus += detail.get('value')
+            if detail.get('type') == 'set':
+                if detail.get('subType').endswith('score'):
+                    c.stats[detail.get('subType').split('-')[0]] = detail.get('value')
 
     armorEquipped = False
     for item in characterData.get('inventory'):
@@ -181,10 +174,27 @@ def main():
         initiative += c.stat_modifier['wisdom']
     if 'Wizard (War)' in c.classNames:
         initiative += c.stat_modifier['intelligence']
+    if characterData['feats'] and "Alert" in {feat['definition']['name'] for feat in characterData.get('feats')}:
+        initiative += 5
 
-    base_hit_points = characterData.get('baseHitPoints')
-    constitution_bonus = c.level * c.stat_modifier['constitution']
-    c.maxHP = base_hit_points + constitution_bonus + c.misc_hp_bonus
+    misc_hp_bonus = 0
+    if characterData['race']['fullName'] == 'Hill Dwarf':
+        misc_hp_bonus += c.level
+
+    if "Draconic Resilience" in c.class_features:
+        misc_hp_bonus += c.class_features['Draconic Resilience']['class_level']
+
+    if characterData['feats'] and "Tough" in {feat['definition']['name'] for feat in characterData.get('feats')}:
+        misc_hp_bonus += 2 * c.level
+
+    if characterData.get("overrideHitPoints"):
+        c.maxHP = characterData['overrideHitPoints']
+    else:
+        base_hit_points = characterData.get('baseHitPoints')
+        if characterData.get("bonusHitPoints"):
+            base_hit_points += characterData['bonusHitPoints']
+        constitution_bonus = c.level * c.stat_modifier['constitution']
+        c.maxHP = base_hit_points + constitution_bonus + misc_hp_bonus
 
     sheet = {
         "stats": {},
@@ -404,6 +414,7 @@ def main():
     print("Level:", c.level)
     print("Class:", c.classNames)
     print("Stats:", c.stats)
+    print("Max HP:", c.maxHP)
     print("AC:", c.armorClass)
     print("Skills:", list(c.skills.keys()))
     print("Saves:", list(c.saves.keys()))
