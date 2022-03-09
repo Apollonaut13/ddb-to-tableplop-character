@@ -1,7 +1,10 @@
 import requests
 import json
 import os
+import sys
 from dataclasses import dataclass, field
+
+DEBUG = False
 
 dnd_skills = {
     'athletics': 'strength',
@@ -31,6 +34,7 @@ dnd_stats = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 
 class Character:
     name: str = ""
     level: int = 0
+    classFeatures: object = None
     classNames: str = ""
     armorClass: int = 0
     maxHP: int = 0
@@ -63,6 +67,16 @@ def class_features(data) -> dict:
                 class_features[feature_name] = feature_obj
     return class_features
 
+def unarmored_ac_bonus(character):
+    unarmored_ac_bonus = 0
+    if 'Draconic Resilience' in character.classFeatures:
+        unarmored_ac_bonus = 3
+    if 'Monk' in character.classNames:
+        unarmored_ac_bonus = character.stat_modifier['wisdom']
+    if 'Barbarian' in character.classNames:
+        unarmored_ac_bonus = character.stat_modifier['constitution']
+    return unarmored_ac_bonus
+
 
 def all_data_from_ddb_URL(characterURL):
     characterID = characterURL.split('/')[-1]
@@ -73,13 +87,14 @@ def all_data_from_ddb_URL(characterURL):
 
     if characterData['data'].get('name'):
         print(f"Loaded {characterData['data']['name']}'s character data.")
+        if DEBUG:
+            with open(f"{characterData['data']['name']}.json", 'w') as outputFile:
+                json.dump(characterData, outputFile, indent=4)
         return characterData['data']
+
 
     print("Character not found. Exiting.")
     exit()
-
-    # with open(f"{characterData['data']['name']}.json", 'w') as outputFile:
-    #     json.dump(characterData, outputFile, indent=4)
 
 
 def build_classSubclassLevel_string_from(data):
@@ -130,8 +145,8 @@ def determine_HP(data, character):
     if data['race']['fullName'] == 'Hill Dwarf':
         misc_hp_bonus += character.level
 
-    if "Draconic Resilience" in class_features(data):
-        misc_hp_bonus += class_features(data)['Draconic Resilience']['class_level']
+    if "Draconic Resilience" in character.classFeatures:
+        misc_hp_bonus += character.classFeatures['Draconic Resilience']['class_level']
 
     if data['feats'] and "Tough" in {feat['definition']['name'] for feat in data.get('feats')}:
         misc_hp_bonus += 2 * character.level
@@ -147,10 +162,15 @@ def determine_HP(data, character):
 
 
 def main():
-    characterURL = input("Paste the URL for your character below.\n> ")
+    if len(sys.argv) == 1:
+        characterURL = input("Paste the URL for your character below.\n> ")
+    else:
+        characterURL = sys.argv[1]
+
     characterData = all_data_from_ddb_URL(characterURL)
     c = Character()
 
+    c.classFeatures = class_features(characterData)
     c.name = characterData.get('name')
     c.level = sum(eachClass.get('level') for eachClass in characterData.get('classes'))
     c.classNames = build_classSubclassLevel_string_from(characterData)
@@ -196,18 +216,17 @@ def main():
             if armorName in {"Ring Mail", "Chain Mail", "Splint", "Plate"}:
                 armorEquipped = True
 
+    #  shield counts as equipped armor for a monk but
+    #  this is not implemented properly on DDB,
+    #  has not been since 2020
+    #  If it ever is:
+    #  * check for armorName == "Shield" above
+    #  * check for "Monk" in c.classNames
+    #  * set armorEquipped to True if character is a monk with a shield.
+
     # if a shield is equipped, c.armorClass already accounted for it
     if not armorEquipped:
-        c.armorClass += 10 + c.stat_modifier['dexterity']
-        if 'Monk' in c.classNames:
-            c.armorClass = max(
-                c.stat_modifier['wisdom'] + c.stat_modifier['dexterity'],
-                c.armorClass)
-
-        if 'Barbarian' in c.classNames:
-            c.armorClass = max(
-                c.stat_modifier['constitution'] + c.stat_modifier['dexterity'],
-                c.armorClass)
+        c.armorClass += 10 + c.stat_modifier['dexterity'] + unarmored_ac_bonus(c)
 
     c.armorClass += misc_ac_bonus
 
@@ -221,7 +240,7 @@ def main():
         "savedMessages": []
     }
     stats = sheet["stats"]
-    proficiencyBonus = 2 + c.level // 4
+    proficiencyBonus = 2 + (c.level - 1) // 4
     stats["hit-points-maximum"] = {
         "value": c.maxHP,
         "section": "info",
@@ -251,7 +270,7 @@ def main():
     }
     stats["proficiency"] = {
         "value": proficiencyBonus,
-        "expression": "2+floor(level/4)",
+        "expression": "2+floor((level - 1)/4)",
         "section": "info",
         "type": "number"
     }
