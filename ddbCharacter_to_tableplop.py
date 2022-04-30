@@ -80,7 +80,7 @@ def unarmored_ac_bonus(character):
 
 def all_data_from_ddb_URL(characterURL):
     characterID = characterURL.split('/')[-1]
-    if 'ddb.ac' in characterURL:
+    if 'ddb.ac' in characterURL or not characterID.isnumeric():
         characterID = characterURL.split('/')[-2]
     r = requests.get(f"https://character-service.dndbeyond.com/character/v3/character/{characterID}")
     characterData = json.loads(r.text)
